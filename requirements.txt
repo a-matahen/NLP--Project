@@ -1,0 +1,8 @@
+spacy>=3.0.0
+scikit-learn>=1.0.0
+numpy>=1.19.0
+fastapi>=0.100.0
+uvicorn>=0.20.0
+python-multipart>=0.0.6
+pdfplumber>=0.9.0
+python-docx>=0.8.11

@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PlagScan — Document Similarity Detector</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+
+  <style>
+    /* ── Variables ──────────────────────────────────────────────── */
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #13131a;
+      --surface2:  #1c1c27;
+      --border:    #2a2a3a;
+      --accent:    #6c63ff;
+      --accent2:   #ff6584;
+      --text:      #e8e8f0;
+      --muted:     #6b6b80;
+      --high:      #ff4d4d;
+      --moderate:  #ff9f43;
+      --low:       #ffd32a;
+      --minimal:   #26de81;
+      --radius:    12px;
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise overlay ──────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Glow blobs ─────────────────────────────────────────────── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.12;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .blob-1 {
+      width: 600px; height: 600px;
+      background: var(--accent);
+      top: -200px; left: -200px;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    .blob-2 {
+      width: 400px; height: 400px;
+      background: var(--accent2);
+      bottom: -100px; right: -100px;
+      animation: drift 14s ease-in-out infinite alternate-reverse;
+    }
+    @keyframes drift {
+      from { transform: translate(0, 0) scale(1); }
+      to   { transform: translate(40px, 30px) scale(1.08); }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      padding: 60px 0 48px;
+      text-align: center;
+    }
+
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      margin-bottom: 28px;
+    }
+    .logo-badge span { color: var(--muted); }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(42px, 7vw, 76px);
+      font-weight: 800;
+      line-height: 1.0;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff 40%, #6c63ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 16px;
+    }
+
+    .tagline {
+      font-size: 16px;
+      color: var(--muted);
+      font-weight: 300;
+      max-width: 480px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+
+    .card-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Input grid ─────────────────────────────────────────────── */
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 700px) { .input-grid { grid-template-columns: 1fr; } }
+
+    .doc-panel {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .doc-panel:focus-within { border-color: var(--accent); }
+
+    .doc-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .doc-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 0.05em;
+    }
+    .doc-counter {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 220px;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      padding: 16px;
+      resize: vertical;
+    }
+    textarea::placeholder { color: var(--muted); opacity: 0.5; }
+
+    /* Drop zone */
+    .drop-zone {
+      border-top: 1px dashed var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .drop-zone:hover { background: rgba(108,99,255,0.06); }
+    .drop-zone input[type="file"] { display: none; }
+    .drop-zone-icon {
+      width: 28px; height: 28px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .drop-zone-text { font-size: 12px; color: var(--muted); }
+    .drop-zone-text strong { color: var(--text); font-weight: 500; }
+    .file-name {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      margin-left: auto;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Analyze button ─────────────────────────────────────────── */
+    .btn-analyze {
+      width: 100%;
+      padding: 18px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: var(--radius);
+      font-family: 'Syne', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.15s, box-shadow 0.15s;
+      margin-top: 4px;
+    }
+    .btn-analyze::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+    }
+    .btn-analyze:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(108,99,255,0.4);
+    }
+    .btn-analyze:active { transform: translateY(0); }
+    .btn-analyze:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* ── Progress ───────────────────────────────────────────────── */
+    #progress-section { display: none; }
+
+    .progress-bar-wrap {
+      background: var(--surface2);
+      border-radius: 999px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 999px;
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+    .progress-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ── Results ────────────────────────────────────────────────── */
+    #results-section { display: none; }
+
+    /* Score row */
+    .score-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 600px) { .score-row { grid-template-columns: 1fr; } }
+
+    .score-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .score-box::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent);
+    }
+    .score-box.overall::before { background: var(--overall-color, var(--accent)); }
+
+    .score-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 42px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .score-box.overall .score-num { color: var(--overall-color, var(--accent)); }
+    .score-desc {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* Similarity meter */
+    .meter-wrap {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .meter-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .meter-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .verdict-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 5px 14px;
+      border-radius: 999px;
+      letter-spacing: 0.04em;
+    }
+
+    .meter-track {
+      background: var(--surface);
+      border-radius: 999px;
+      height: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .meter-fill {
+      height: 100%;
+      border-radius: 999px;
+      width: 0%;
+      transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .meter-ticks {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding: 0 2px;
+    }
+    .meter-tick {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    /* Matches */
+    .matches-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .matches-count {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 999px;
+      color: var(--accent);
+    }
+
+    .match-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 12px;
+      animation: fadeUp 0.3s ease both;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .match-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+    .match-num {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .match-score {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .match-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    @media (max-width: 600px) { .match-body { grid-template-columns: 1fr; } }
+
+    .match-col {
+      padding: 14px 16px;
+    }
+    .match-col:first-child { border-right: 1px solid var(--border); }
+
+    .match-col-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .match-col:first-child .match-col-label { color: #f39c12; }
+    .match-col:last-child  .match-col-label { color: #3498db; }
+
+    .match-text {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+    .match-col:first-child .match-text {
+      background: rgba(243,156,18,0.07);
+      border-left: 3px solid #f39c12;
+    }
+    .match-col:last-child .match-text {
+      background: rgba(52,152,219,0.07);
+      border-left: 3px solid #3498db;
+    }
+
+    .no-matches {
+      text-align: center;
+      padding: 40px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* Download */
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: border-color 0.2s, background 0.2s;
+      margin-top: 8px;
+    }
+    .btn-download:hover {
+      border-color: var(--accent);
+      background: rgba(108,99,255,0.08);
+    }
+
+    /* Error */
+    .error-box {
+      background: rgba(255,77,77,0.08);
+      border: 1px solid rgba(255,77,77,0.3);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 14px;
+      color: #ff6b6b;
+      display: none;
+      margin-bottom: 16px;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding-top: 40px;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+
+  <div class="wrapper">
+
+    <!-- Header -->
+    <header>
+      <div class="logo-badge">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <circle cx="5" cy="5" r="4" fill="#6c63ff"/>
+        </svg>
+        <span>NLP Course Project /</span> PlagScan v1.0
+      </div>
+      <h1>Document<br>Similarity</h1>
+      <p class="tagline">Detect plagiarism using TF-IDF vectors, cosine similarity, and N-gram analysis.</p>
+    </header>
+
+    <!-- Input Card -->
+    <div class="card">
+      <div class="card-title">📄 Input Documents</div>
+
+      <div class="input-grid">
+
+        <!-- Doc 1 -->
+        <div class="doc-panel" id="panel1">
+          <div class="doc-panel-header">
+            <span class="doc-label">DOC_01</span>
+            <span class="doc-counter" id="counter1">0 words</span>
+          </div>
+          <textarea id="text1" placeholder="Paste or type the original document here..."></textarea>
+          <label class="drop-zone" for="file1">
+            <input type="file" id="file1" accept=".txt,.pdf,.docx"/>
+            <div class="drop-zone-icon">📎</div>
+            <div class="drop-zone-text"><strong>Upload file</strong> — .txt, .pdf, .docx</div>
+            <span class="file-name" id="fname1"></span>
+          </label>
+        </div>
+
+        <!-- Doc 2 -->
+        <div class="doc-panel" id="panel2">
+          <div class="doc-panel-header">
+            <span class="doc-label">DOC_02</span>
+            <span class="doc-counter" id="counter2">0 words</span>
+          </div>
+          <textarea id="text2" placeholder="Paste or type the submitted document here..."></textarea>
+          <label class="drop-zone" for="file2">
+            <input type="file" id="file2" accept=".txt,.pdf,.docx"/>
+            <div class="drop-zone-icon">📎</div>
+            <div class="drop-zone-text"><strong>Upload file</strong> — .txt, .pdf, .docx</div>
+            <span class="file-name" id="fname2"></span>
+          </label>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="error-box" id="error-box"></div>
+
+    <!-- Analyze Button -->
+    <button class="btn-analyze" id="btn-analyze" onclick="analyze()">
+      🔍 &nbsp; Analyze Documents
+    </button>
+
+    <!-- Progress -->
+    <div id="progress-section" style="margin-top:20px;">
+      <div class="card">
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="prog-fill"></div>
+        </div>
+        <div class="progress-label" id="prog-label">Starting…</div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="results-section" style="margin-top:28px;">
+
+      <!-- Scores -->
+      <div class="card">
+        <div class="card-title">📊 Similarity Scores</div>
+        <div class="score-row">
+          <div class="score-box">
+            <div class="score-num" id="r-cosine">—</div>
+            <div class="score-desc">Cosine Similarity<br>Topic Level</div>
+          </div>
+          <div class="score-box">
+            <div class="score-num" id="r-jaccard">—</div>
+            <div class="score-desc">Jaccard Similarity<br>Phrase Level</div>
+          </div>
+          <div class="score-box overall" id="overall-box">
+            <div class="score-num" id="r-overall">—</div>
+            <div class="score-desc">Overall Score<br>Combined</div>
+          </div>
+        </div>
+
+        <!-- Meter -->
+        <div class="meter-wrap">
+          <div class="meter-header">
+            <span class="meter-title">Similarity Meter</span>
+            <span class="verdict-badge" id="r-verdict-badge">—</span>
+          </div>
+          <div class="meter-track">
+            <div class="meter-fill" id="r-meter"></div>
+          </div>
+          <div class="meter-ticks">
+            <span class="meter-tick">0%</span>
+            <span class="meter-tick">25%</span>
+            <span class="meter-tick">50%</span>
+            <span class="meter-tick">75%</span>
+            <span class="meter-tick">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Matching Passages -->
+      <div class="card">
+        <div class="matches-header">
+          <div class="card-title" style="margin:0; flex:1;">🔗 Matching Passages</div>
+          <span class="matches-count" id="r-match-count">0 found</span>
+        </div>
+        <div id="r-matches"></div>
+      </div>
+
+      <!-- Download -->
+      <a class="btn-download" id="btn-download" href="#" download="plagiarism_report.html">
+        ⬇ &nbsp; Download Full HTML Report
+      </a>
+
+    </div>
+
+    <footer>
+      PlagScan · NLP Course Project · Powered by spaCy + scikit-learn
+    </footer>
+
+  </div>
+
+  <script>
+    // ── Word counter ────────────────────────────────────────────────
+    function countWords(text) {
+      return text.trim().split(/\s+/).filter(w => w.length > 0).length;
+    }
+
+    document.getElementById('text1').addEventListener('input', function() {
+      document.getElementById('counter1').textContent = countWords(this.value) + ' words';
+    });
+    document.getElementById('text2').addEventListener('input', function() {
+      document.getElementById('counter2').textContent = countWords(this.value) + ' words';
+    });
+
+    // ── File upload — read .txt files directly ──────────────────────
+    function bindFileInput(inputId, textareaId, fnameId, counterId) {
+      document.getElementById(inputId).addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById(fnameId).textContent = file.name;
+
+        if (file.name.endsWith('.txt')) {
+          const reader = new FileReader();
+          reader.onload = function(ev) {
+            const ta = document.getElementById(textareaId);
+            ta.value = ev.target.result;
+            document.getElementById(counterId).textContent = countWords(ta.value) + ' words';
+          };
+          reader.readAsText(file);
+        } else {
+          // PDF/DOCX are handled server-side via Flask
+          // The file will be sent as FormData in the analyze() call
+          document.getElementById(counterId).textContent = file.name;
+        }
+      });
+    }
+
+    bindFileInput('file1', 'text1', 'fname1', 'counter1');
+    bindFileInput('file2', 'text2', 'fname2', 'counter2');
+
+    // ── Progress helper ─────────────────────────────────────────────
+    function setProgress(pct, label) {
+      document.getElementById('prog-fill').style.width = pct + '%';
+      document.getElementById('prog-label').textContent = label;
+    }
+
+    // ── Score color ─────────────────────────────────────────────────
+    function scoreColor(score) {
+      if (score >= 75) return 'var(--high)';
+      if (score >= 40) return 'var(--moderate)';
+      if (score >= 15) return 'var(--low)';
+      return 'var(--minimal)';
+    }
+
+    function verdictClass(score) {
+      if (score >= 75) return { bg:'rgba(255,77,77,0.15)',   color:'#ff4d4d' };
+      if (score >= 40) return { bg:'rgba(255,159,67,0.15)',  color:'#ff9f43' };
+      if (score >= 15) return { bg:'rgba(255,211,42,0.15)',  color:'#ffd32a' };
+      return            { bg:'rgba(38,222,129,0.15)', color:'#26de81' };
+    }
+
+    // ── Render matches ──────────────────────────────────────────────
+    function renderMatches(matches, name1, name2) {
+      const container = document.getElementById('r-matches');
+      document.getElementById('r-match-count').textContent = matches.length + ' found';
+
+      if (!matches.length) {
+        container.innerHTML = '<div class="no-matches">No significant matching passages detected.</div>';
+        return;
+      }
+
+      container.innerHTML = matches.map((m, i) => `
+        <div class="match-item" style="animation-delay:${i * 0.07}s">
+          <div class="match-meta">
+            <span class="match-num">MATCH #${i + 1}</span>
+            <span class="match-score">${(m.similarity * 100).toFixed(1)}% similar</span>
+          </div>
+          <div class="match-body">
+            <div class="match-col">
+              <div class="match-col-label">${name1}</div>
+              <div class="match-text">${m.sentence1}</div>
+            </div>
+            <div class="match-col">
+              <div class="match-col-label">${name2}</div>
+              <div class="match-text">${m.sentence2}</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ── Generate downloadable HTML report ───────────────────────────
+    function buildReportHTML(result, name1, name2) {
+      const color  = scoreColor(result.overall_score).replace('var(--high)','#ff4d4d').replace('var(--moderate)','#ff9f43').replace('var(--low)','#ffd32a').replace('var(--minimal)','#26de81');
+      const now    = new Date().toLocaleString();
+      const matches = result.matching_passages;
+
+      const matchesHTML = matches.length ? matches.map((m, i) => `
+        <div style="border:1px solid #e0e0e0;border-radius:8px;margin-bottom:12px;overflow:hidden;">
+          <div style="background:#f8f9fa;padding:10px 16px;font-size:13px;font-weight:bold;color:#555;border-bottom:1px solid #e0e0e0;">
+            Match #${i+1} — ${(m.similarity*100).toFixed(1)}% similar
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;">
+            <div style="padding:14px 16px;border-right:1px solid #e0e0e0;">
+              <div style="font-size:11px;font-weight:bold;color:#888;margin-bottom:6px;text-transform:uppercase;">${name1}</div>
+              <div style="font-size:14px;line-height:1.6;padding:8px 10px;background:#fef9e7;border-left:3px solid #f39c12;border-radius:4px;">${m.sentence1}</div>
+            </div>
+            <div style="padding:14px 16px;">
+              <div style="font-size:11px;font-weight:bold;color:#888;margin-bottom:6px;text-transform:uppercase;">${name2}</div>
+              <div style="font-size:14px;line-height:1.6;padding:8px 10px;background:#eaf4fb;border-left:3px solid #3498db;border-radius:4px;">${m.sentence2}</div>
+            </div>
+          </div>
+        </div>`).join('') : '<p style="color:#888;font-style:italic;">No matching passages found.</p>';
+
+      return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Plagiarism Report</title></head>
+      <body style="font-family:sans-serif;background:#f0f2f5;padding:30px;color:#333;">
+      <div style="max-width:900px;margin:0 auto;">
+        <div style="background:#2c3e50;color:white;padding:30px;border-radius:10px 10px 0 0;text-align:center;">
+          <h1 style="margin:0 0 8px;font-size:26px;">Plagiarism Detection Report</h1>
+          <p style="margin:0;opacity:0.7;font-size:13px;">${now}</p>
+        </div>
+        <div style="background:white;padding:20px 30px;border-bottom:1px solid #eee;display:flex;gap:40px;">
+          <div><b>Document 1:</b> ${name1}</div>
+          <div><b>Document 2:</b> ${name2}</div>
+          <div><b>Matches:</b> ${matches.length}</div>
+        </div>
+        <div style="background:white;padding:30px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px;">
+            <div style="background:#f8f9fa;border-radius:8px;padding:16px;text-align:center;border-top:4px solid #2c3e50;">
+              <div style="font-size:32px;font-weight:bold;color:#2c3e50;">${(result.cosine_similarity*100).toFixed(1)}%</div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">Cosine Similarity</div>
+            </div>
+            <div style="background:#f8f9fa;border-radius:8px;padding:16px;text-align:center;border-top:4px solid #2c3e50;">
+              <div style="font-size:32px;font-weight:bold;color:#2c3e50;">${(result.jaccard_similarity*100).toFixed(1)}%</div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">Jaccard Similarity</div>
+            </div>
+            <div style="background:#f8f9fa;border-radius:8px;padding:16px;text-align:center;border-top:4px solid ${color};">
+              <div style="font-size:32px;font-weight:bold;color:${color};">${result.overall_score.toFixed(1)}%</div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">Overall Score</div>
+            </div>
+          </div>
+          <div style="display:inline-block;padding:8px 20px;border-radius:20px;background:${color};color:white;font-weight:bold;font-size:14px;margin-bottom:24px;">${result.verdict}</div>
+          <h3 style="margin-bottom:16px;color:#555;">Matching Passages</h3>
+          ${matchesHTML}
+        </div>
+      </div></body></html>`;
+    }
+
+    // ── Main analyze function ────────────────────────────────────────
+    async function analyze() {
+      const text1  = document.getElementById('text1').value.trim();
+      const text2  = document.getElementById('text2').value.trim();
+      const file1  = document.getElementById('file1').files[0];
+      const file2  = document.getElementById('file2').files[0];
+      const errBox = document.getElementById('error-box');
+
+      errBox.style.display = 'none';
+
+      // Validation
+      const hasDoc1 = text1.length > 0 || file1;
+      const hasDoc2 = text2.length > 0 || file2;
+
+      if (!hasDoc1 || !hasDoc2) {
+        errBox.textContent = 'Please provide both documents before analyzing.';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      const name1 = file1 ? file1.name : 'Document 1';
+      const name2 = file2 ? file2.name : 'Document 2';
+
+      // Show progress
+      document.getElementById('btn-analyze').disabled = true;
+      document.getElementById('progress-section').style.display = 'block';
+      document.getElementById('results-section').style.display  = 'none';
+
+      setProgress(10, 'Module 1 — Preprocessing text with spaCy…');
+
+      // Build FormData to send to Flask
+      const formData = new FormData();
+      if (file1) formData.append('file1', file1);
+      else        formData.append('text1', text1);
+      if (file2)  formData.append('file2', file2);
+      else        formData.append('text2', text2);
+
+      try {
+        setProgress(30, 'Module 2 — Extracting N-grams and TF-IDF vectors…');
+
+        const response = await fetch('http://localhost:5000/analyze', {
+          method: 'POST',
+          body:   formData,
+        });
+
+        setProgress(65, 'Module 3 — Computing similarity scores…');
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Server error');
+        }
+
+        const result = await response.json();
+
+        setProgress(90, 'Module 4 — Rendering report…');
+
+        // ── Populate results ───────────────────────────────────────
+        const overall = result.overall_score;
+        const color   = scoreColor(overall);
+        const vc      = verdictClass(overall);
+
+        document.getElementById('r-cosine').textContent  = (result.cosine_similarity  * 100).toFixed(1) + '%';
+        document.getElementById('r-jaccard').textContent = (result.jaccard_similarity * 100).toFixed(1) + '%';
+        document.getElementById('r-overall').textContent = overall.toFixed(1) + '%';
+
+        // Overall box color
+        const overallBox = document.getElementById('overall-box');
+        overallBox.style.setProperty('--overall-color', color.includes('var') ? '' : color);
+        document.querySelector('#overall-box .score-num').style.color = color.replace(/var\(([^)]+)\)/, (_, v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+
+        // Verdict badge
+        const badge = document.getElementById('r-verdict-badge');
+        badge.textContent = result.verdict;
+        badge.style.background = vc.bg;
+        badge.style.color = vc.color;
+
+        // Meter
+        const meter = document.getElementById('r-meter');
+        meter.style.background = color.replace(/var\(([^)]+)\)/, (_, v) => {
+          const map = {'--high':'#ff4d4d','--moderate':'#ff9f43','--low':'#ffd32a','--minimal':'#26de81'};
+          return map[v] || '#6c63ff';
+        });
+        setTimeout(() => { meter.style.width = Math.min(overall, 100) + '%'; }, 100);
+
+        // Matches
+        renderMatches(result.matching_passages, name1, name2);
+
+        // Download button
+        const reportHTML = buildReportHTML(result, name1, name2);
+        const blob = new Blob([reportHTML], { type: 'text/html' });
+        document.getElementById('btn-download').href = URL.createObjectURL(blob);
+
+        setProgress(100, 'Done!');
+
+        setTimeout(() => {
+          document.getElementById('progress-section').style.display = 'none';
+          document.getElementById('results-section').style.display  = 'block';
+          document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+        }, 500);
+
+      } catch (err) {
+        document.getElementById('progress-section').style.display = 'none';
+        errBox.textContent = 'Error: ' + err.message + '. Make sure the Flask server is running (python app.py).';
+        errBox.style.display = 'block';
+      } finally {
+        document.getElementById('btn-analyze').disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
