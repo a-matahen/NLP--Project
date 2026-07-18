@@ -1,6 +1,6 @@
 # PlagScan — NLP Plagiarism Detector
 
-A plagiarism detection system built with Python and spaCy that compares two documents and returns a similarity score using TF-IDF, Cosine Similarity, and Jaccard Similarity.
+A plagiarism detection built with spaCy and scikit-learn. Detects potential plagiarism by combining TF-IDF cosine similarity (topic-level) with Jaccard similarity (phrase-level) and highlights matching sentence pairs
 
 ---
 
