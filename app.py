@@ -17,11 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Optional
 
-# ── Import our 4 modules ───────────────────────────────────────────────────
-from module1_preprocessing import preprocess, read_file
-from module2_features       import extract_features
-from module3_similarity     import compare_documents
-from module4_reporting      import generate_html_report
+# ── Import the 4 modules ───────────────────────────────────────────────────
+from model_1 import preprocess, get_extension
+from model_2   import extract_features
+from model_3     import compare_documents
+#from model_4      import generate_html_report
 
 
 # ══════════════════════════════════════════════════════════════════════════

@@ -59,7 +59,7 @@ def _get_verdict_color(overall: float) -> str:
     return "#2ecc71"
 
 
-def generate_report(result: dict,
+#def generate_report(result: dict,
                     doc1_name: str = "Document 1",
                     doc2_name: str = "Document 2") -> None:
     print_report(result, doc1_name, doc2_name)

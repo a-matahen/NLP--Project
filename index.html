@@ -633,7 +633,7 @@
       try {
         setProgress(30, 'Step 2 - Extracting N-grams and TF-IDF vectors...');
 
-        const response = await fetch('http://localhost:5000/analyze', {
+        const response = await fetch('http://localhost:8000/analyze', {
           method: 'POST',
           body:   formData,
         });
@@ -686,7 +686,7 @@
 
       } catch (err) {
         document.getElementById('progress-section').style.display = 'none';
-        errBox.textContent = 'Error: ' + err.message + '. Make sure the Flask server is running (python app.py).';
+        errBox.textContent = 'Error: ' + err.message + '. Make sure the API server is running (check http://localhost:8000/docs).';
         errBox.style.display = 'block';
       } finally {
         document.getElementById('btn-analyze').disabled = false;

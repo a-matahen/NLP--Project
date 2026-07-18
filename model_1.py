@@ -104,7 +104,7 @@ def tokenize_sentences(text: str) -> list[str]:
 #==========================================================
 #             ---------------------------
 #==========================================================
-def preprocess_pipline(text: str) -> dict:
+def preprocess(text: str) -> dict:
 
     cleaned   = clean_text(text)
     sentences = tokenize_sentences(text)
