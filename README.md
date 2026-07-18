@@ -64,12 +64,12 @@ http://localhost:8000/docs
 
 ```
 plagiarism_detector/
-├── module1_preprocessing.py   # Clean, tokenize, lemmatize (spaCy)
-├── module2_features.py        # N-grams + TF-IDF vectors
-├── module3_similarity.py      # Cosine, Jaccard, matching passages
-├── module4_reporting.py       # Terminal report output
+├── module1.py   # Clean, tokenize, lemmatize (spaCy)
+├── module2.py        # N-grams + TF-IDF vectors
+├── module3.py      # Cosine, Jaccard, matching passages
+├── module4.py       # Terminal report output
 ├── app.py                     # FastAPI backend
-├── index.html                 # Web interface
+├── index.html                 # Web interface "Vibe coding"
 ├── requirements.txt           # Python dependencies
 └── README.md                  # This file
 ```
